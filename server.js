@@ -1,61 +1,67 @@
-const express = require('express');
-const cors = require('cors');
-const acorn = require('acorn');
-const prettier = require('prettier');
+const express = require("express");
+const acorn = require("acorn");
+const cors = require("cors");
 
 const app = express();
 app.use(cors());
-app.use(express.text({ type: '*/*' }));
+app.use(express.text({ limit: "5mb" })); // Accept plain text (script_general.js content)
 
-app.post('/parse', async (req, res) => {
+app.post("/", (req, res) => {
+  const rawCode = req.body;
+
+  let ast;
   try {
-    const formatted = prettier.format(req.body, {
-      parser: 'babel',
-      plugins: [require('prettier/parser-babel')],
-    });
-
-    const ast = acorn.parse(formatted, { ecmaVersion: 'latest' });
-    let definitions = [];
-
-    function walk(node) {
-      if (!node || typeof node !== 'object') return;
-      if (
-        node.type === 'Property' &&
-        (node.key?.name === 'definitions' || node.key?.value === 'definitions') &&
-        node.value?.type === 'ArrayExpression'
-      ) {
-        definitions = node.value.elements;
-      }
-
-      for (const key in node) {
-        const child = node[key];
-        if (Array.isArray(child)) child.forEach(walk);
-        else if (typeof child === 'object') walk(child);
-      }
-    }
-
-    walk(ast);
-
-    const thumbnails = definitions
-      .map((def) => {
-        const props = Object.fromEntries(
-          def.properties.map((p) => [p.key.name || p.key.value, p.value])
-        );
-        if (props.class?.value !== 'Panorama') return null;
-        return {
-          id: props.id?.value,
-          label:
-            props.data?.properties.find((p) => p.key.name === 'label')?.value.value,
-          thumb: props.thumbnailUrl?.value,
-        };
-      })
-      .filter(Boolean);
-
-    res.json(thumbnails);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
+    ast = acorn.parse(rawCode, { ecmaVersion: "latest", sourceType: "script" });
+  } catch (err) {
+    return res.status(400).json({ thumbnails: [], error: "Parse failed" });
   }
+
+  let definitionsArray = [];
+
+  function walk(node) {
+    if (!node || typeof node !== "object") return;
+    if (
+      node.type === "Property" &&
+      (node.key?.name === "definitions" || node.key?.value === "definitions") &&
+      node.value?.type === "ArrayExpression"
+    ) {
+      definitionsArray = node.value.elements;
+    }
+    for (const key in node) {
+      const child = node[key];
+      if (Array.isArray(child)) child.forEach(walk);
+      else if (typeof child === "object" && child !== null) walk(child);
+    }
+  }
+
+  walk(ast);
+
+  const thumbnails = definitionsArray
+    .map((def) => {
+      const properties = Object.fromEntries(
+        def.properties.map((p) => [p.key.name || p.key.value, p.value])
+      );
+      if (properties.class?.value !== "Panorama") return null;
+
+      const id = properties.id?.value || "unknown";
+      const thumb = properties.thumbnailUrl?.value || "";
+      const label =
+        properties.data?.properties.find((p) => p.key.name === "label")?.value
+          ?.value || "Untitled";
+
+      return {
+        id,
+        label,
+        thumb,
+        uniqueKey: `${id}_${Math.random().toString(36).slice(2, 6)}`,
+      };
+    })
+    .filter(Boolean);
+
+  return res.json({ thumbnails });
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 API running on port ${PORT}`));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ API running at http://localhost:${PORT}`);
+});
