@@ -1,35 +1,10 @@
 const express = require("express");
 const acorn = require("acorn");
 const cors = require("cors");
-const fs = require("fs");
-const path = require("path");
 
 const app = express();
 app.use(cors());
-app.use(express.text({ limit: "5mb" }));
-
-// 🟡 Step 1: Read and parse en.txt at startup
-const labelMap = {};
-const labelOrder = []; // <== Maintain order from en.txt
-const txtPath = path.join(__dirname, "locale", "en.txt");
-
-try {
-  const rawTxt = fs.readFileSync(txtPath, "utf-8");
-  const labelLines = rawTxt.split("\n").filter((line) => line.includes("panorama_") && line.includes(".label ="));
-
-  labelLines.forEach((line) => {
-    const match = line.match(/panorama_([A-Z0-9_]+)\.label\s*=\s*(.+)/);
-    if (match) {
-      const id = match[1].trim();
-      const label = match[2].trim().replace(/^"|"$/g, "");
-      labelMap[id] = label;
-      labelOrder.push(id); // preserve the order
-    }
-  });
-  console.log("✅ Loaded pano labels from en.txt:", Object.keys(labelMap).length, "entries");
-} catch (err) {
-  console.error("❌ Failed to load en.txt:", err.message);
-}
+app.use(express.text({ limit: "5mb" })); // Accept plain text (script_general.js content)
 
 app.post("/", (req, res) => {
   const rawCode = req.body;
@@ -61,31 +36,24 @@ app.post("/", (req, res) => {
 
   walk(ast);
 
-  const panoMap = {};
+  const thumbnails = definitionsArray
+    .map((def) => {
+      const properties = Object.fromEntries(
+        def.properties.map((p) => [p.key.name || p.key.value, p.value])
+      );
+      if (properties.class?.value !== "Panorama") return null;
 
-  definitionsArray.forEach((def) => {
-    const properties = Object.fromEntries(
-      def.properties.map((p) => [p.key.name || p.key.value, p.value])
-    );
-    if (properties.class?.value !== "Panorama") return;
-
-    const id = properties.id?.value || "unknown";
-    const thumb = properties.thumbnailUrl?.value || "";
-
-    panoMap[id] = { id, thumb };
-  });
-
-  // ✅ Step 2: Build thumbnails in en.txt order
-  const thumbnails = labelOrder
-    .map((panoKey) => {
-      const matchId = Object.keys(panoMap).find((id) => id.includes(panoKey));
-      if (!matchId) return null;
+      const id = properties.id?.value || "unknown";
+      const thumb = properties.thumbnailUrl?.value || "";
+      const label =
+        properties.data?.properties.find((p) => p.key.name === "label")?.value
+          ?.value || "Untitled";
 
       return {
-        id: matchId,
-        label: labelMap[panoKey],
-        thumb: panoMap[matchId].thumb,
-        uniqueKey: `${matchId}_${Math.random().toString(36).slice(2, 6)}`,
+        id,
+        label,
+        thumb,
+        uniqueKey: `${id}_${Math.random().toString(36).slice(2, 6)}`,
       };
     })
     .filter(Boolean);
