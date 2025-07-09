@@ -4,7 +4,7 @@ const cors = require("cors");
 
 const app = express();
 app.use(cors());
-app.use(express.text({ limit: "5mb" })); // Accept plain text (script_general.js content)
+app.use(express.text({ limit: "5mb" }));
 
 app.post("/", (req, res) => {
   const rawCode = req.body;
@@ -41,19 +41,18 @@ app.post("/", (req, res) => {
       const properties = Object.fromEntries(
         def.properties.map((p) => [p.key.name || p.key.value, p.value])
       );
+
       if (properties.class?.value !== "Panorama") return null;
 
       const id = properties.id?.value || "unknown";
       const thumb = properties.thumbnailUrl?.value || "";
-      const label =
-        properties.data?.properties.find((p) => p.key.name === "label")?.value
-          ?.value || "Untitled";
+      const rawLabel =
+        properties.data?.properties.find((p) => p.key.name === "label")?.value?.value || null;
 
       return {
         id,
-        label,
         thumb,
-        uniqueKey: `${id}_${Math.random().toString(36).slice(2, 6)}`,
+        rawLabel,
       };
     })
     .filter(Boolean);
